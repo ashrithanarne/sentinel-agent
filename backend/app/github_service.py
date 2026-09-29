@@ -55,5 +55,20 @@ def search_repository(owner: str, repo: str, query: str) -> list[dict]:
     data = response.json()
     return [
         {"path": item["path"], "name": item["name"]}
+        #It returns an object with an item key instead of an array of items.
         for item in data.get("items", [])
+    ]
+
+def list_directory(owner: str, repo: str, path: str = "") -> list[dict]:
+    url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}"
+    headers = {"Authorization": f"Bearer {GITHUB_TOKEN}"}
+
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+
+    data = response.json()
+    return [
+        {"name": item["name"], "path": item["path"], "type": item["type"]}
+        #returns an array of items
+        for item in data
     ]
