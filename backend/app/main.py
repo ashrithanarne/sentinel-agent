@@ -1,5 +1,10 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from app.github_service import get_repository, read_file, search_repository, list_directory
+from app import database
+
+from sqlalchemy.orm import Session
+from app.database import get_db
+from app.models import Repository
 
 app=FastAPI()
 
@@ -34,3 +39,33 @@ def get_directory(owner: str, repo: str, path: str = ""):
         return list_directory(owner, repo, path)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
+    
+
+@app.post("/repo/{owner}/{repo}/save")
+def save_repository(owner: str, repo: str, db: Session = Depends(get_db)):
+    try:
+        data = get_repository(owner, repo)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    existing = db.query(Repository).filter(Repository.full_name == data["full_name"]).first()
+    if existing:
+        return {"message": "already saved", "repository": data}
+
+    new_repo = Repository(
+        name=data["name"],
+        full_name=data["full_name"],
+        description=data["description"],
+        default_branch=data["default_branch"],
+        private=data["private"],
+    )
+    db.add(new_repo)
+    db.commit()
+    db.refresh(new_repo)
+
+    return {"message": "saved", "id": new_repo.id}
+
+
+@app.get("/repos")
+def list_repositories(db: Session = Depends(get_db)):
+    return db.query(Repository).all()
