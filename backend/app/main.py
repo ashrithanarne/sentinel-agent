@@ -4,9 +4,16 @@ from app import database
 
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Repository
+from app.models import Repository, Investigation
 
 app=FastAPI()
+
+from pydantic import BaseModel
+
+class InvestigationCreate(BaseModel):
+    owner: str
+    repo: str
+    problem_description: str
 
 @app.get("/health")
 def health():
@@ -93,3 +100,40 @@ def save_repository(owner: str, repo: str, db: Session = Depends(get_db)):
 @app.get("/repos")
 def list_repositories(db: Session = Depends(get_db)):
     return db.query(Repository).all()
+
+@app.post("/investigations")
+def create_investigation(request: InvestigationCreate, db: Session = Depends(get_db)):
+    full_name = f"{request.owner}/{request.repo}"
+    repository = db.query(Repository).filter(Repository.full_name == full_name).first()
+
+    if not repository:
+        try:
+            data = get_repository(request.owner, request.repo)
+        except Exception as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
+        repository = Repository(
+            name=data["name"],
+            full_name=data["full_name"],
+            description=data["description"],
+            default_branch=data["default_branch"],
+            private=data["private"],
+        )
+        db.add(repository)
+        db.commit()
+        db.refresh(repository)
+
+    investigation = Investigation(
+        repository_id=repository.id,
+        problem_description=request.problem_description,
+    )
+    db.add(investigation)
+    db.commit()
+    db.refresh(investigation)
+
+    return {
+        "id": investigation.id,
+        "repository": repository.full_name,
+        "problem_description": investigation.problem_description,
+        "status": investigation.status,
+    }
