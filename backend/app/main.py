@@ -13,11 +13,35 @@ def health():
     return {"status":"ok"}
 
 @app.get("/repo/{owner}/{repo}")
-def read_repository(owner:str, repo:str):
+def read_repository(owner: str, repo: str, db: Session = Depends(get_db)):
+    full_name = f"{owner}/{repo}"
+    existing = db.query(Repository).filter(Repository.full_name == full_name).first()
+
+    if existing:
+        return {
+            "name": existing.name,
+            "full_name": existing.full_name,
+            "description": existing.description,
+            "default_branch": existing.default_branch,
+            "private": existing.private,
+        }
+
     try:
-        return get_repository(owner,repo)
+        data = get_repository(owner, repo)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+    new_repo = Repository(
+        name=data["name"],
+        full_name=data["full_name"],
+        description=data["description"],
+        default_branch=data["default_branch"],
+        private=data["private"],
+    )
+    db.add(new_repo)
+    db.commit()
+
+    return data
 
 @app.get("/repo/{owner}/{repo}/file")
 def get_file(owner:str, repo:str, path:str):

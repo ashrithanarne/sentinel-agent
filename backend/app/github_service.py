@@ -34,7 +34,7 @@ def read_file(owner: str, repo: str, path: str) -> dict:
     response.raise_for_status()
 
     data = response.json()
-    content = base64.b64decode(data["content"]).decode("utf-8")
+    content = base64.b64decode(data["content"]).decode("utf-8") #The returned content is usually encoded, so we have to decodeit before displaying it
 
     return {
         "path": data["path"],
