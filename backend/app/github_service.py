@@ -1,3 +1,4 @@
+#This file solely handles all the functions to the GitHub API
 import os
 import requests
 from dotenv import load_dotenv

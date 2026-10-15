@@ -1,4 +1,4 @@
-#This file is for defining the structure of the tables
+#This file is for defining the structure of the tables (SQLalchemy declarative base to postgres tables)
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
 from sqlalchemy.sql import func
 from app.database import Base
