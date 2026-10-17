@@ -1,4 +1,5 @@
-#This file is like a bridge between the tool request from the model to the real functions, with owner and repo fixed(TO make sure only the allowed repo is accessed) and errors turned into data.
+#This file is like a bridge between the tool request from the model to the real functions, 
+#with owner and repo fixed(TO make sure only the allowed repo is accessed) and errors turned into data.
 from app import github_service
 
 

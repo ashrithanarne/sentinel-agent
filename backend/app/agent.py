@@ -19,7 +19,7 @@ def _short(result: dict, limit: int = 100) -> str:
     return text if len(text) <= limit else text[:limit] + "..."
 
 
-def investigate(owner: str, repo: str, problem: str) -> dict:
+def investigate(owner: str, repo: str, problem: str, on_step=None) -> dict:
     system = SYSTEM_PROMPT.format(owner=owner, repo=repo)
     contents = [llm.user_message(problem)]
 
@@ -36,6 +36,8 @@ def investigate(owner: str, repo: str, problem: str) -> dict:
             print(f"[step {step}] {call['name']}({call['args']})")
             result = execute_tool(call["name"], call["args"], owner, repo)
             print(f"          -> {_short(result)}")
+            if on_step:
+                on_step(step, call["name"], call["args"], result)
             results.append((call["name"], result))
         contents.append(llm.tool_result_message(results))
 
