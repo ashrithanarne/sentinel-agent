@@ -3,11 +3,19 @@ from sqlalchemy.orm import Session
 from app.models import Investigation, InvestigationStep, Repository
 from app.agent import investigate
 
+#custom class
+class InvestigationNotRunnable(Exception):
+    pass
 
 def run_investigation(db: Session, investigation_id: int) -> Investigation:
     investigation = db.query(Investigation).filter(Investigation.id == investigation_id).first()
     if not investigation:
         raise ValueError(f"Investigation {investigation_id} not found")
+    
+    if investigation.status != "pending":
+        raise InvestigationNotRunnable(
+            f"Investigation {investigation_id} has status '{investigation.status}' and can't be run again"
+        )
 
     repository = db.query(Repository).filter(Repository.id == investigation.repository_id).first()
     owner, repo = repository.full_name.split("/")

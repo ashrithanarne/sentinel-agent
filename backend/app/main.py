@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Repository, Investigation, InvestigationStep
 from app.repository_service import get_or_create_repository
-from app.investigation_service import run_investigation
+from app.investigation_service import run_investigation, InvestigationNotRunnable
 
 app=FastAPI()
 
@@ -113,6 +113,8 @@ def create_investigation(request: InvestigationCreate, db: Session = Depends(get
 def run_investigation_endpoint(investigation_id: int, db: Session = Depends(get_db)):
     try:
         investigation = run_investigation(db, investigation_id)
+    except InvestigationNotRunnable as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
