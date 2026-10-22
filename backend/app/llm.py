@@ -2,7 +2,8 @@
 import os
 from dotenv import load_dotenv
 from google import genai
-from google.genai import types
+from google.genai import types,errors
+import time
 
 load_dotenv()
 
@@ -10,6 +11,9 @@ load_dotenv()
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 MODEL = "gemini-3.5-flash-lite"
+
+RETRYABLE_CODES = {429, 500, 503}
+MAX_ATTEMPTS = 4
 
 
 def ask(prompt: str) -> str:
@@ -48,16 +52,30 @@ def tool_result_message(results: list):
     return types.Content(role="user", parts=parts)
 
 
-#Calls the model and returns entire content the model gives
-def generate(contents: list, system_instruction: str, declarations: list):
-    config = types.GenerateContentConfig(
+#Calls the model and returns entire content the model gives, also exponential wait times in case the server is busy.
+def generate(contents: list, system_instruction: str, declarations: list, allow_tools: bool = True):
+    config_kwargs = dict(
         system_instruction=system_instruction,
         tools=[types.Tool(function_declarations=declarations)],
     )
-    response = client.models.generate_content(
-        model=MODEL, contents=contents, config=config
-    )
-    return response.candidates[0].content
+    if not allow_tools:
+        config_kwargs["tool_config"] = types.ToolConfig(
+            function_calling_config=types.FunctionCallingConfig(mode="NONE")
+        )
+    config = types.GenerateContentConfig(**config_kwargs)
+
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        try:
+            response = client.models.generate_content(
+                model=MODEL, contents=contents, config=config
+            )
+            return response.candidates[0].content
+        except errors.APIError as e:
+            if e.code not in RETRYABLE_CODES or attempt == MAX_ATTEMPTS:
+                raise
+            wait = 2 ** attempt
+            print(f"[llm] Gemini returned {e.code}, retrying in {wait}s (attempt {attempt}/{MAX_ATTEMPTS})")
+            time.sleep(wait)
 
 
 #Takes in the .contnt returned by the model and sperates all the function calls and its args into a list, later to be given to execute

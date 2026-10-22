@@ -4,8 +4,9 @@ from app import database
 
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Repository, Investigation
+from app.models import Repository, Investigation, InvestigationStep
 from app.repository_service import get_or_create_repository
+from app.investigation_service import run_investigation
 
 app=FastAPI()
 
@@ -106,4 +107,52 @@ def create_investigation(request: InvestigationCreate, db: Session = Depends(get
         "repository": repository.full_name,
         "problem_description": investigation.problem_description,
         "status": investigation.status,
+    }
+
+@app.post("/investigations/{investigation_id}/run")
+def run_investigation_endpoint(investigation_id: int, db: Session = Depends(get_db)):
+    try:
+        investigation = run_investigation(db, investigation_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Investigation failed: {e}")
+
+    return {
+        "id": investigation.id,
+        "status": investigation.status,
+        "answer": investigation.answer,
+    }
+
+
+@app.get("/investigations/{investigation_id}")
+def get_investigation(investigation_id: int, db: Session = Depends(get_db)):
+    investigation = db.query(Investigation).filter(Investigation.id == investigation_id).first()
+    if not investigation:
+        raise HTTPException(status_code=404, detail="Investigation not found")
+
+    repository = db.query(Repository).filter(Repository.id == investigation.repository_id).first()
+    steps = (
+        db.query(InvestigationStep)
+        .filter(InvestigationStep.investigation_id == investigation_id)
+        .order_by(InvestigationStep.id)
+        .all()
+    )
+
+    return {
+        "id": investigation.id,
+        "repository": repository.full_name,
+        "problem_description": investigation.problem_description,
+        "status": investigation.status,
+        "answer": investigation.answer,
+        "steps": [
+            {
+                "step_number": s.step_number,
+                "tool": s.tool_name,
+                "arguments": s.arguments,
+                "is_error": s.is_error,
+                "result_preview": str(s.result)[:200],
+            }
+            for s in steps
+        ],
     }
