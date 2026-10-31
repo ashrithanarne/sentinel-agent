@@ -1,0 +1,99 @@
+{
+  "model": "gemini-3.5-flash-lite",
+  "runs_per_case": 1,
+  "results": [
+    {
+      "case": "model_used",
+      "investigation_id": 14,
+      "status": "completed",
+      "crashed": null,
+      "steps": 5,
+      "errors": 0,
+      "seconds": 58.0,
+      "keyword_ok": true,
+      "files_ok": true,
+      "files_read": [
+        "backend/app/llm.py",
+        "backend/app/models.py"
+      ],
+      "unverified_citations": [],
+      "expect_absent": false,
+      "answer": "1. **Likely answer or root cause**: \n   The application uses Google's Gemini model specifically configured as `gemini-3.5-flash-lite` via the `google-genai` SDK.\n\n2. **Evidence**: \n   - `backend/app/llm.py`: Defines `MODEL = \"gemini-3.5-flash-lite\"` and uses `client = genai.Client(api_key=os.getenv(\"GEMINI_API_KEY\"))` to make calls using `client.models.generate_content`.\n   - `backend/app/models.py`: Defines SQLAlchemy database models (Repository, Investigation, InvestigationStep), which are separate from the AI language model.\n\n3. **What remains uncertain**: \n   - None."
+    },
+    {
+      "case": "cache_check",
+      "investigation_id": 15,
+      "status": "completed",
+      "crashed": null,
+      "steps": 5,
+      "errors": 0,
+      "seconds": 123.9,
+      "keyword_ok": true,
+      "files_ok": true,
+      "files_read": [
+        "backend/app/main.py",
+        "backend/app/repository_service.py"
+      ],
+      "unverified_citations": [],
+      "expect_absent": false,
+      "answer": "1. **Likely answer or root cause:**\nThe logic that checks whether a repository is already saved in the database before calling GitHub is located in **`backend/app/repository_service.py`** inside the `get_or_create_repository` function (and also similarly in the `/repo/{owner}/{repo}/save` endpoint in `backend/app/main.py`). Specifically, `get_or_create_repository` queries the database by `full_name` (`f\"{owner}/{repo}\"`). If an existing record is found, it returns the database record directly **without** calling `get_repository(owner, repo)` (the GitHub API helper). If not found, it proceeds to call GitHub.\n\n2. **Evidence:**\n- **File:** `backend/app/repository_service.py`\n  ```python\n  def get_or_create_repository(db: Session, owner: str, repo: str) -> Repository:\n      full_name = f\"{owner}/{repo}\"\n      existing = db.query(Repository).filter(Repository.full_name == full_name).first()\n      if existing:\n          return existing\n\n      data = get_repository(owner, repo)  # raises if GitHub lookup fails\n      ...\n  ```\n- **File:** `backend/app/main.py` (used by endpoints such as `/repo/{owner}/{repo}` and `/investigations` via `get_or_create_repository`).\n\n3. **What remains uncertain:**\n- None."
+    },
+    {
+      "case": "step_limit",
+      "investigation_id": 16,
+      "status": "completed",
+      "crashed": null,
+      "steps": 8,
+      "errors": 0,
+      "seconds": 119.8,
+      "keyword_ok": true,
+      "files_ok": true,
+      "files_read": [
+        "backend/app/agent.py",
+        "backend/app/investigation_service.py",
+        "backend/app/models.py"
+      ],
+      "unverified_citations": [],
+      "expect_absent": false,
+      "answer": "When the agent uses all of its allowed investigation steps (`MAX_STEPS`, which is set to 10 in `backend/app/agent.py`), the following sequence of events occurs:\n\n1. **Forced Final Answer Generation:**\n   - Instead of continuing to call tools, the agent appends a system/user prompt instructing it: *\"You have used all available investigation steps. Do not call any more tools. Using only what you have gathered so far, give your best answer in the same format, and say clearly in section 3 that the investigation was cut short and what you could not verify.\"*\n   - It calls `llm.generate()` with `allow_tools=False` to ensure no further tool calls can be made.\n\n2. **Investigation Outcome & Status:**\n   - The `investigate` function returns a dictionary with `\"status\": \"step_limit_reached\"`, `\"steps\": MAX_STEPS`, and the final synthesized `answer`.\n   - In `backend/app/investigation_service.py`, the investigation record in the database has its status updated to `step_limit_reached` and the generated answer is saved.\n\n### Evidence\n- **`backend/app/agent.py`**: Defines `MAX_STEPS = 10` and contains the block executed when the loop completes without finishing early:\n  ```python\n  contents.append(llm.user_message(\n      \"You have used all available investigation steps. Do not call any more tools. \"\n      \"Using only what you have gathered so far, give your best answer in the same format, \"\n      \"and say clearly in section 3 that the investigation was cut short and what you could not verify.\"\n  ))\n  final = llm.generate(contents, system, TOOL_DECLARATIONS, allow_tools=False)\n  return {\"status\": \"step_limit_reached\", \"steps\": MAX_STEPS, \"answer\": llm.get_text(final) or None}\n  ```\n- **`backend/app/investigation_service.py`**: Assigns `investigation.status = outcome[\"status\"]`, which stores `step_limit_reached` in the database.\n\n### What remains uncertain\nNothing remains uncertain regarding this behavior; the code explicitly handles the exhaustion of steps by forcing a final answer generation step without tools and setting the status to `step_limit_reached`."
+    },
+    {
+      "case": "tool_errors",
+      "investigation_id": 17,
+      "status": "completed",
+      "crashed": null,
+      "steps": 6,
+      "errors": 0,
+      "seconds": 129.1,
+      "keyword_ok": true,
+      "files_ok": true,
+      "files_read": [
+        "backend/app/agent.py",
+        "backend/app/agent_tools.py",
+        "backend/app/github_service.py",
+        "backend/app/investigation_service.py"
+      ],
+      "unverified_citations": [],
+      "expect_absent": false,
+      "answer": "When a tool call fails during an investigation, the error is handled gracefully without crashing the entire agent loop. Specifically, the following mechanism handles tool failures:\n\n1. **Error Isolation & Conversion to Data (`agent_tools.py`)**:\n   When `execute_tool()` invokes a GitHub service function (`get_repository`, `list_directory`, `search_repository`, `read_file`), any exception raised (such as a network error, missing file, API failure, or unknown tool name) is caught in a `try...except Exception as e:` block and converted into a dictionary containing an error message:\n   ```python\n   except Exception as e:\n       return {\"error\": str(e)}\n   ```\n\n2. **Database Logging (`investigation_service.py`)**:\n   During execution, `investigation_service.py` records each step via `save_step`. It checks whether the result dictionary contains the word `\"error\"` to flag the step in the database:\n   ```python\n   is_error=\"error\" in result\n   ```\n   This is committed to the `InvestigationStep` table (`is_error` boolean flag and result JSON), allowing the investigation to continue running rather than aborting.\n\n3. **LLM Awareness (`agent.py`)**:\n   The error result dictionary is returned to the LLM as part of the tool result message (`llm.tool_result_message(results)`). This enables the LLM to see that the tool call failed, read the error message (e.g., file not found or invalid path), and decide on an alternative course of action in subsequent steps.\n\n### Evidence\n- **`backend/app/agent_tools.py`**: Contains the `try...except Exception as e:` wrapper returning `{\"error\": str(e)}`.\n- **`backend/app/investigation_service.py`**: Defines `save_step`, which evaluates `is_error=\"error\" in result` and commits the step to the database without throwing an exception.\n- **`backend/app/agent.py`**: Passes tool results back into the model's conversation history (`contents.append(llm.tool_result_message(results))`) so the agent can adapt to the failure.\n\n### What Remains Uncertain\n- Whether specific UI components or frontend views expose these error steps distinctively to end users, though the database and agent loop successfully record and handle them."
+    },
+    {
+      "case": "absent_feature",
+      "investigation_id": 18,
+      "status": "completed",
+      "crashed": null,
+      "steps": 9,
+      "errors": 0,
+      "seconds": 418.9,
+      "keyword_ok": null,
+      "files_ok": null,
+      "files_read": [
+        "backend/app/main.py",
+        "backend/requirements.txt"
+      ],
+      "unverified_citations": [],
+      "expect_absent": true,
+      "answer": "1. **Likely answer or root cause:** \nRedis is **not used anywhere** in this application for caching (or any other purpose). The application uses FastAPI, PostgreSQL (via SQLAlchemy and psycopg2), and Google GenAI, but has no references or dependencies for Redis.\n\n2. **Evidence:**\n- Checked repository file structure via `list_directory` and found only backend code (FastAPI, SQLAlchemy, PostgreSQL, Google GenAI).\n- Checked `backend/requirements.txt` via `read_file`: lists `fastapi`, `uvicorn[standard]`, `python-dotenv`, `requests`, `sqlalchemy`, `psycopg2-binary`, and `google-genai` (no `redis` or `aioredis`).\n- Searched the entire repository for the terms `redis` and `cache` using `search_repository`, returning 0 results.\n\n3. **What remains uncertain:**\n- Nothing remains uncertain; Redis is definitively absent from the codebase."
+    }
+  ]
+}
