@@ -26,6 +26,7 @@ def investigate(owner: str, repo: str, problem: str, on_step=None) -> dict:
     system = SYSTEM_PROMPT.format(owner=owner, repo=repo)
     contents = [llm.user_message(problem)]
     seen_calls = set()
+    cache = {}
 
     for step in range(1, MAX_STEPS + 1):
         t0 = time.perf_counter()
@@ -46,7 +47,7 @@ def investigate(owner: str, repo: str, problem: str, on_step=None) -> dict:
             else:
                 seen_calls.add(key)
                 t1 = time.perf_counter()
-                result = execute_tool(call["name"], call["args"], owner, repo)
+                result = execute_tool(call["name"], call["args"], owner, repo, cache)
                 print(f"          tool took {time.perf_counter() - t1:.1f}s")
             print(f"          -> {_short(result)}")
             if on_step:

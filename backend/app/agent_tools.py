@@ -3,16 +3,16 @@
 from app import github_service
 
 
-def execute_tool(name: str, args: dict, owner: str, repo: str) -> dict:
+def execute_tool(name: str, args: dict, owner: str, repo: str, cache: dict | None = None) -> dict:
     try:
         if name == "get_repository":
             return {"result": github_service.get_repository(owner, repo)}
         if name == "list_directory":
             return {"result": github_service.list_directory(owner, repo, args.get("path", ""))}
         if name == "search_repository":
-            return {"result": github_service.search_repository(owner, repo, args["query"])}
+            return {"result": github_service.search_repository(owner, repo, args["query"], cache)}
         if name == "read_file":
-            return {"result": github_service.read_file(owner, repo, args["path"])}
+            return {"result": github_service.read_file(owner, repo, args["path"], cache)}
         return {"error": f"Unknown tool: {name}"}
     except Exception as e:
         return {"error": str(e)}

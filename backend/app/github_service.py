@@ -27,7 +27,11 @@ def get_repository(owner: str, repo: str) -> dict:   #->dict defines the return 
     }
 
 
-def read_file(owner: str, repo: str, path: str) -> dict:
+def read_file(owner: str, repo: str, path: str, cache: dict | None = None) -> dict:
+    key = ("file", path)
+    if cache is not None and key in cache:
+        return cache[key]
+    
     url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents/{path}"
     headers = {"Authorization": f"Bearer {GITHUB_TOKEN}"}
 
@@ -36,12 +40,11 @@ def read_file(owner: str, repo: str, path: str) -> dict:
 
     data = response.json()
     content = base64.b64decode(data["content"]).decode("utf-8") #The returned content is usually encoded, so we have to decodeit before displaying it
-
-    return {
-        "path": data["path"],
-        "content": content,
-        "size": data["size"],
-    }
+    result = {"path": data["path"], "content": content, "size": data["size"]}
+    
+    if cache is not None:
+        cache[key] = result
+    return result
 
 #This function searches an entire repo and returns a list of the paths of files that contain the text "query". query is a regular expression/text and not a command
 #This basically is to find, "which files contain the word abc?"
@@ -83,21 +86,28 @@ MAX_FILE_SIZE = 100_000
 MAX_FILES_SCANNED = 40
 
 
-def get_repository_tree(owner: str, repo: str) -> list[dict]:
+def get_repository_tree(owner: str, repo: str, cache: dict | None = None) -> list[dict]:
+    key = ("tree",)
+    if cache is not None and key in cache:
+        return cache[key]
+    
     branch = get_repository(owner, repo)["default_branch"]
     url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/git/trees/{branch}"
     headers = {"Authorization": f"Bearer {GITHUB_TOKEN}"}
 
     response = requests.get(url, headers=headers, params={"recursive": "1"})
     response.raise_for_status()
+    tree = response.json()["tree"]
 
-    return response.json()["tree"]
+    if cache is not None:
+        cache[key] = tree
+    return tree
 
 
-def _search_by_scanning(owner: str, repo: str, query: str) -> list[dict]:
+def _search_by_scanning(owner: str, repo: str, query: str, cache: dict | None = None) -> list[dict]:
     needle = query.lower()
     files = [
-        item for item in get_repository_tree(owner, repo)
+        item for item in get_repository_tree(owner, repo, cache)
         if item["type"] == "blob"
         and item["path"].lower().endswith(TEXT_EXTENSIONS)
         and item.get("size", 0) <= MAX_FILE_SIZE
@@ -107,7 +117,7 @@ def _search_by_scanning(owner: str, repo: str, query: str) -> list[dict]:
     for item in files[:MAX_FILES_SCANNED]:
         path = item["path"]
         try:
-            content = read_file(owner, repo, path)["content"]
+            content = read_file(owner, repo, path, cache)["content"]
         except Exception:
             continue
         if needle in path.lower() or needle in content.lower():
@@ -115,8 +125,8 @@ def _search_by_scanning(owner: str, repo: str, query: str) -> list[dict]:
     return matches
 
 
-def search_repository(owner: str, repo: str, query: str) -> list[dict]:
+def search_repository(owner: str, repo: str, query: str, cache: dict | None = None) -> list[dict]:
     results = _search_github_index(owner, repo, query)
     if results:
         return results
-    return _search_by_scanning(owner, repo, query)
+    return _search_by_scanning(owner, repo, query, cache)
