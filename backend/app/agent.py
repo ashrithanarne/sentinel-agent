@@ -11,15 +11,27 @@ SYSTEM_PROMPT = """You are a software investigation agent examining the GitHub r
 Use the tools to gather evidence about the user's problem. Choose the most useful next step each time.
 Never repeat a tool call you have already made with the same arguments; its result is already in the conversation.
 search_repository may be incomplete: it falls back to scanning only a limited number of text files, so an empty result does NOT prove a term is absent from the code. If two searches return nothing, stop searching and browse with list_directory and read likely files instead.
+Seeing a file's name in a directory listing is NOT the same as reading it. Make claims about a file's contents only if you opened it with read_file.
 Base your conclusions only on files you actually read. When you have enough evidence, stop calling tools and answer with:
 1. Likely answer or root cause
 2. Evidence (file paths and what you saw in them)
-3. What remains uncertain: list which files you read, any empty searches or failed tools, and what you could not check. If your conclusion is that something does not exist, phrase it as 'no evidence found in the files I checked'. Never write that nothing is uncertain."""
+3. What remains uncertain: empty searches or failed tools, files you only saw by name, and what you could not check. Do NOT list which files you read; the system appends that list automatically. If your conclusion is that something does not exist, phrase it as 'no evidence found in the files I checked'. Never write that nothing is uncertain."""
 
 
 def _short(result: dict, limit: int = 100) -> str:
     text = str(result)
     return text if len(text) <= limit else text[:limit] + "..."
+
+#Helper functions to print out the actual files read by the model
+def _files_footer(files_read: list) -> str:
+    listing = ", ".join(f"`{p}`" for p in files_read) if files_read else "none"
+    return f"\n\n---\nFiles actually opened with read_file (recorded by the system, not written by the model): {listing}"
+
+
+def _finalize(answer, files_read: list):
+    if not answer:
+        return answer
+    return answer + _files_footer(files_read)
 
 #Main loop with best effort condition added. Timeing checks and check for repeated function calls added.
 def investigate(owner: str, repo: str, problem: str, on_step=None) -> dict:
@@ -27,6 +39,7 @@ def investigate(owner: str, repo: str, problem: str, on_step=None) -> dict:
     contents = [llm.user_message(problem)]
     seen_calls = set()
     cache = {}
+    files_read = []
 
     for step in range(1, MAX_STEPS + 1):
         t0 = time.perf_counter()
@@ -36,7 +49,8 @@ def investigate(owner: str, repo: str, problem: str, on_step=None) -> dict:
 
         calls = llm.get_function_calls(model_message)
         if not calls:
-            return {"status": "completed", "steps": step, "answer": llm.get_text(model_message)}
+            answer = _finalize(llm.get_text(model_message), files_read)
+            return {"status": "completed", "steps": step, "answer": answer}
 
         results = []
         for call in calls:
@@ -49,6 +63,10 @@ def investigate(owner: str, repo: str, problem: str, on_step=None) -> dict:
                 t1 = time.perf_counter()
                 result = execute_tool(call["name"], call["args"], owner, repo, cache)
                 print(f"          tool took {time.perf_counter() - t1:.1f}s")
+                if call["name"] == "read_file" and "error" not in result: #Adding path to the files read list so that we can output it ourselves
+                    path = call["args"].get("path")
+                    if path and path not in files_read:
+                        files_read.append(path)
             print(f"          -> {_short(result)}")
             if on_step:
                 on_step(step, call["name"], call["args"], result)
@@ -61,4 +79,5 @@ def investigate(owner: str, repo: str, problem: str, on_step=None) -> dict:
         "and say clearly in section 3 that the investigation was cut short and what you could not verify."
     ))
     final = llm.generate(contents, system, TOOL_DECLARATIONS, allow_tools=False)
-    return {"status": "step_limit_reached", "steps": MAX_STEPS, "answer": llm.get_text(final) or None}
+    answer = _finalize(llm.get_text(final), files_read)
+    return {"status": "step_limit_reached", "steps": MAX_STEPS, "answer": answer or None}

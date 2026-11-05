@@ -1,0 +1,99 @@
+{
+  "model": "gemini-3.5-flash-lite",
+  "runs_per_case": 1,
+  "results": [
+    {
+      "case": "model_used",
+      "investigation_id": 29,
+      "status": "completed",
+      "crashed": null,
+      "steps": 4,
+      "errors": 0,
+      "seconds": 6.1,
+      "keyword_ok": true,
+      "files_ok": true,
+      "files_read": [
+        "backend/app/llm.py"
+      ],
+      "unverified_citations": [],
+      "expect_absent": false,
+      "answer": "1. Likely answer or root cause:\nThe model being used is Google Gemini, specifically the model identified by the string `\"gemini-3.5-flash-lite\"`.\n\n2. Evidence:\n- `backend/app/llm.py` defines `MODEL = \"gemini-3.5-flash-lite\"` and uses `client = genai.Client(api_key=os.getenv(\"GEMINI_API_KEY\"))` from the `google.genai` SDK to make calls via `client.models.generate_content`.\n\n3. What remains uncertain:\n- Whether other model names or fallbacks are used elsewhere outside of `backend/app/llm.py`.\n\n---\nFiles actually opened with read_file (recorded by the system, not written by the model): `backend/app/llm.py`"
+    },
+    {
+      "case": "cache_check",
+      "investigation_id": 30,
+      "status": "completed",
+      "crashed": null,
+      "steps": 5,
+      "errors": 0,
+      "seconds": 13.6,
+      "keyword_ok": true,
+      "files_ok": true,
+      "files_read": [
+        "backend/app/main.py",
+        "backend/app/repository_service.py"
+      ],
+      "unverified_citations": [],
+      "expect_absent": false,
+      "answer": "1. **Likely answer or root cause:**\nThe logic that checks whether a repository is already saved in the database before calling GitHub resides in `get_or_create_repository` inside `backend/app/repository_service.py`. This service function queries the database for an existing repository matching `owner/repo` (`Repository.full_name`) and returns it immediately if found. If it does not exist, it calls `get_repository(owner, repo)` to fetch it from GitHub. Additionally, a secondary check exists in the `/repo/{owner}/{repo}/save` endpoint in `backend/app/main.py`, which calls `get_repository` first and then checks if it is already in the database.\n\n2. **Evidence:**\n- `backend/app/repository_service.py`: Contains `get_or_create_repository(db: Session, owner: str, repo: str)` which queries `db.query(Repository).filter(Repository.full_name == full_name).first()` before invoking `get_repository(owner, repo)`.\n- `backend/app/main.py`: Uses `get_or_create_repository` in endpoints such as `read_repository` and `create_investigation`, and also implements the separate `/repo/{owner}/{repo}/save` endpoint logic.\n\n3. **What remains uncertain:**\nNo significant uncertainties remain regarding where this check is defined and used.\n\n---\nFiles actually opened with read_file (recorded by the system, not written by the model): `backend/app/repository_service.py`, `backend/app/main.py`"
+    },
+    {
+      "case": "step_limit",
+      "investigation_id": 31,
+      "status": "failed",
+      "crashed": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 15, model: gemini-3.5-flash-lite, description: Generate content requests per minute limit exceeded on Free Tier. See https://ai.google.dev/gemini-api/docs/rate-limits.\\nPlease retry in 42.490536534s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'description': 'Generate content requests per minute limit exceeded on Free Tier. See https://ai.google.dev/gemini-api/docs/rate-limits.', 'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-3.5-flash-lite'}, 'quotaValue': '15'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '42s'}]}}",
+      "steps": 6,
+      "errors": 0,
+      "seconds": 23.2,
+      "keyword_ok": false,
+      "files_ok": true,
+      "files_read": [
+        "README.md",
+        "backend/app/agent.py",
+        "backend/app/investigation_service.py"
+      ],
+      "unverified_citations": [],
+      "expect_absent": false,
+      "answer": ""
+    },
+    {
+      "case": "tool_errors",
+      "investigation_id": 32,
+      "status": "completed",
+      "crashed": null,
+      "steps": 8,
+      "errors": 0,
+      "seconds": 25.6,
+      "keyword_ok": true,
+      "files_ok": true,
+      "files_read": [
+        "README.md",
+        "backend/app/agent.py",
+        "backend/app/agent_tools.py",
+        "backend/app/github_service.py"
+      ],
+      "unverified_citations": [],
+      "expect_absent": false,
+      "answer": "1. Likely answer or root cause:\nWhen a tool call fails during an investigation, the error is caught by `execute_tool` in `backend/app/agent_tools.py`, which catches any exception `e` and turns it into data by returning a dictionary containing an error key: `{\"error\": str(e)}` (or `{\"error\": f\"Unknown tool: {name}\"}` if an unknown tool name is passed). This result is then sent back to the agent model as part of the tool result message so the agent can see the error and continue or adjust its investigation.\n\n2. Evidence:\n- `backend/app/agent_tools.py`: Contains the `execute_tool` function which wraps tool executions in a `try...except Exception as e:` block and returns `{\"error\": str(e)}` or `{\"error\": f\"Unknown tool: {name}\"}` upon failure.\n- `backend/app/agent.py`: Shows that the result of `execute_tool` is appended to `results` and passed via `llm.tool_result_message(results)` into the conversation contents (`contents.append(...)`), allowing the LLM agent to process the failure.\n\n3. What remains uncertain:\nNo uncertainty remains regarding how exceptions/failures in tool execution are caught and handled by the backend code.\n\n---\nFiles actually opened with read_file (recorded by the system, not written by the model): `README.md`, `backend/app/agent.py`, `backend/app/agent_tools.py`, `backend/app/github_service.py`"
+    },
+    {
+      "case": "absent_feature",
+      "investigation_id": 33,
+      "status": "completed",
+      "crashed": null,
+      "steps": 8,
+      "errors": 0,
+      "seconds": 20.4,
+      "keyword_ok": null,
+      "files_ok": null,
+      "files_read": [
+        "README.md",
+        "backend/app/main.py",
+        "backend/requirements.txt"
+      ],
+      "unverified_citations": [],
+      "expect_absent": true,
+      "answer": "1. Likely answer or root cause:\nRedis is not used anywhere in this application for caching (or any other purpose).\n\n2. Evidence:\n- `backend/requirements.txt`: Lists dependencies (`fastapi`, `uvicorn`, `python-dotenv`, `requests`, `sqlalchemy`, `psycopg2-binary`, `google-genai`), none of which include Redis or any caching library.\n- Repository searches and file inspections across the codebase show no references to Redis, caching, or cache configuration.\n\n3. What remains uncertain:\n- No evidence found in the files I checked.\n\n---\nFiles actually opened with read_file (recorded by the system, not written by the model): `backend/requirements.txt`, `README.md`, `backend/app/main.py`"
+    }
+  ]
+}

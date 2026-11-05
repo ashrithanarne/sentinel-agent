@@ -1,0 +1,97 @@
+{
+  "model": "gemini-3.5-flash-lite",
+  "runs_per_case": 1,
+  "results": [
+    {
+      "case": "model_used",
+      "investigation_id": 24,
+      "status": "completed",
+      "crashed": null,
+      "steps": 6,
+      "errors": 0,
+      "seconds": 8.3,
+      "keyword_ok": true,
+      "files_ok": true,
+      "files_read": [
+        "README.md",
+        "backend/app/llm.py",
+        "backend/requirements.txt"
+      ],
+      "unverified_citations": [],
+      "expect_absent": false,
+      "answer": "1. **Likely answer or root cause:**\n   The application uses Google's **Gemini** generative AI model, specifically **`gemini-3.5-flash-lite`**, accessed via the `google-genai` Python SDK.\n\n2. **Evidence:**\n   - `backend/app/llm.py`: Contains the constant `MODEL = \"gemini-3.5-flash-lite\"`, initializes the Google GenAI client (`client = genai.Client(api_key=os.getenv(\"GEMINI_API_KEY\"))`), and makes generation calls using `client.models.generate_content`.\n   - `backend/requirements.txt`: Lists `google-genai` as a dependency.\n\n3. **What remains uncertain:**\n   - Whether any other specific model variants or fallbacks are configured elsewhere or dynamically in environment variables (no other models were found in the checked files).\n\n---\nFiles actually opened with read_file (recorded by the system, not written by the model): `backend/app/llm.py`, `README.md`, `backend/requirements.txt`"
+    },
+    {
+      "case": "cache_check",
+      "investigation_id": 25,
+      "status": "completed",
+      "crashed": null,
+      "steps": 4,
+      "errors": 0,
+      "seconds": 12.0,
+      "keyword_ok": true,
+      "files_ok": true,
+      "files_read": [
+        "backend/app/main.py",
+        "backend/app/repository_service.py"
+      ],
+      "unverified_citations": [],
+      "expect_absent": false,
+      "answer": "1. Likely answer or root cause:\nThe logic that checks whether a repository is already saved in the database before calling the GitHub service API resides in the `get_or_create_repository` function inside `backend/app/repository_service.py`. This function queries the database using `Repository.full_name` (formatted as `{owner}/{repo}`). If an existing record is found, it returns that record immediately without calling `get_repository(owner, repo)`. Otherwise, it proceeds to fetch the repository metadata from GitHub and save a new record to the database.\n\n2. Evidence:\n- `backend/app/repository_service.py`: Contains the `get_or_create_repository` helper function which queries the database for `full_name`, checks `if existing: return existing`, and only calls `get_repository(owner, repo)` if the repository is not found in the database.\n- `backend/app/main.py`: Shows that endpoints like `read_repository` and `create_investigation` call `get_or_create_repository(db, owner, repo)` to handle repository lookups and creation.\n\n3. What remains uncertain:\n- No evidence found in the files checked for any other repository lookup logic or caching mechanisms outside of `repository_service.py` and `main.py`.\n\n---\nFiles actually opened with read_file (recorded by the system, not written by the model): `backend/app/main.py`, `backend/app/repository_service.py`"
+    },
+    {
+      "case": "step_limit",
+      "investigation_id": 26,
+      "status": "failed",
+      "crashed": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 15, model: gemini-3.5-flash-lite, description: Generate content requests per minute limit exceeded on Free Tier. See https://ai.google.dev/gemini-api/docs/rate-limits.\\nPlease retry in 17.9755113s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'description': 'Generate content requests per minute limit exceeded on Free Tier. See https://ai.google.dev/gemini-api/docs/rate-limits.', 'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-3.5-flash-lite'}, 'quotaValue': '15'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '17s'}]}}",
+      "steps": 6,
+      "errors": 0,
+      "seconds": 38.8,
+      "keyword_ok": false,
+      "files_ok": true,
+      "files_read": [
+        "README.md",
+        "backend/app/agent.py",
+        "backend/app/investigation_service.py"
+      ],
+      "unverified_citations": [],
+      "expect_absent": false,
+      "answer": ""
+    },
+    {
+      "case": "tool_errors",
+      "investigation_id": 27,
+      "status": "completed",
+      "crashed": null,
+      "steps": 9,
+      "errors": 0,
+      "seconds": 21.6,
+      "keyword_ok": true,
+      "files_ok": true,
+      "files_read": [
+        "README.md",
+        "backend/app/agent.py",
+        "backend/app/agent_tools.py",
+        "backend/app/investigation_service.py"
+      ],
+      "unverified_citations": [],
+      "expect_absent": false,
+      "answer": "When a tool call fails during an investigation, the following happens:\n\n1. **Error catching and conversion to data**: In `backend/app/agent_tools.py`, the `execute_tool` function wraps tool execution in a `try...except Exception as e:` block. If any exception occurs (or if an unknown tool name is requested), it catches the exception and returns a dictionary containing an error key: `{\"error\": str(e)}`.\n2. **Recording the step**: In `backend/app/investigation_service.py`, `run_investigation` defines a callback function `save_step`. When a tool finishes, it saves the step into the database (`InvestigationStep`) with `is_error` set to `True` (determined by checking if `\"error\" in result`).\n3. **Feeding back to the agent**: The agent loop in `backend/app/agent.py` receives this result dictionary (containing the error) via `execute_tool`, passes it to the `on_step` callback, and appends the result to the model's message context (`contents.append(llm.tool_result_message(results))`). This allows the LLM agent to see that the tool call failed and decide its next step accordingly.\n\n### Evidence\n- `backend/app/agent_tools.py`: Shows how exceptions during tool execution are caught and returned as `{\"error\": str(e)}`.\n- `backend/app/investigation_service.py`: Shows how `is_error=\"error\" in result` is computed and saved in each `InvestigationStep`.\n- `backend/app/agent.py`: Shows how tool execution results (including errors) are recorded, passed to `on_step`, and fed back into conversation `contents` for the model.\n\n### What remains uncertain\n- How specific LLM models behaviorally react to receiving a tool result containing an error message (as this depends on the external LLM provider/prompt handling).\n\n---\nFiles actually opened with read_file (recorded by the system, not written by the model): `README.md`, `backend/app/agent_tools.py`, `backend/app/investigation_service.py`, `backend/app/agent.py`"
+    },
+    {
+      "case": "absent_feature",
+      "investigation_id": 28,
+      "status": "failed",
+      "crashed": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 15, model: gemini-3.5-flash-lite, description: Generate content requests per minute limit exceeded on Free Tier. See https://ai.google.dev/gemini-api/docs/rate-limits.\\nPlease retry in 33.6367888s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'description': 'Generate content requests per minute limit exceeded on Free Tier. See https://ai.google.dev/gemini-api/docs/rate-limits.', 'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-3.5-flash-lite', 'location': 'global'}, 'quotaValue': '15'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '33s'}]}}",
+      "steps": 5,
+      "errors": 0,
+      "seconds": 24.5,
+      "keyword_ok": null,
+      "files_ok": null,
+      "files_read": [],
+      "unverified_citations": [],
+      "expect_absent": true,
+      "answer": ""
+    }
+  ]
+}
