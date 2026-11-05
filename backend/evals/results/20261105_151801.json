@@ -1,0 +1,48 @@
+{
+  "model": "gemini-3.5-flash-lite",
+  "runs_per_case": 1,
+  "results": [
+    {
+      "case": "step_limit",
+      "investigation_id": 46,
+      "outcome": "PASS",
+      "status": "completed",
+      "crashed": null,
+      "steps": 5,
+      "errors": 0,
+      "seconds": 34.7,
+      "keyword_ok": true,
+      "files_ok": true,
+      "files_read": [
+        "backend/app/agent.py",
+        "backend/app/investigation_service.py"
+      ],
+      "unverified_citations": [],
+      "quotes_total": 2,
+      "quotes_unmatched": [],
+      "expect_absent": false,
+      "answer": "1. Likely answer or root cause\nWhen the agent uses all of its allowed investigation steps (`MAX_STEPS = 10`), it is prompted to stop calling tools and provide its best final answer using the evidence gathered so far. Specifically, a follow-up user message is appended instructing the model not to call any more tools and to format its final answer while noting in section 3 that the investigation was cut short and what could not be verified. The investigation status returned is set to `\"step_limit_reached\"`, with `MAX_STEPS` steps and the generated text as the answer.\n\n2. Evidence\n- In `backend/app/agent.py`, `MAX_STEPS` is defined as 10:\n```python\nMAX_STEPS = 10\n```\n- In `backend/app/agent.py`, the loop runs up to `MAX_STEPS`, and if exhausted, it appends a message instructing the model to provide a final answer without calling tools (`allow_tools=False`), returning a status of `\"step_limit_reached\"`:\n```python\n    contents.append(llm.user_message(\n        \"You have used all available investigation steps. Do not call any more tools. \"\n        \"Using only what you have gathered so far, give your best answer in the same format, \"\n        \"and say clearly in section 3 that the investigation was cut short and what you could not verify.\"\n    ))\n    final = llm.generate(contents, system, TOOL_DECLARATIONS, allow_tools=False)\n    return {\"status\": \"step_limit_reached\", \"steps\": MAX_STEPS, \"answer\": llm.get_text(final) or None}\n```\n\n3. What remains uncertain\nNo searches or tools failed. What could not be checked is how `llm.generate` behaves under the hood when `allow_tools=False` or how other parts of the application (outside of `backend/app/agent.py` and `backend/app/investigation_service.py`) handle a status of `\"step_limit_reached\"`, as those files were not read.\n\n---\nFiles actually opened with read_file (recorded by the system, not written by the model): `backend/app/investigation_service.py`, `backend/app/agent.py`"
+    },
+    {
+      "case": "absent_feature",
+      "investigation_id": 47,
+      "outcome": "MANUAL",
+      "status": "completed",
+      "crashed": null,
+      "steps": 8,
+      "errors": 0,
+      "seconds": 44.6,
+      "keyword_ok": null,
+      "files_ok": null,
+      "files_read": [
+        "README.md",
+        "backend/requirements.txt"
+      ],
+      "unverified_citations": [],
+      "quotes_total": 1,
+      "quotes_unmatched": [],
+      "expect_absent": true,
+      "answer": "1. Likely answer or root cause\nThere is no evidence that Redis is used for caching (or used at all) in this application. The dependencies (`backend/requirements.txt`) do not include any Redis libraries, and text searches for `redis` returned no results in the repository.\n\n2. Evidence\n* In `backend/requirements.txt`:\n```text\nfastapi\nuvicorn[standard]\npython-dotenv\nrequests\nsqlalchemy\npsycopg2-binary\ngoogle-genai\n```\n\n3. What remains uncertain\nEmpty searches for \"redis\" and \"cache\", files not read in detail (such as individual Python implementation files in `backend/app/`), and any external infrastructure configuration or environment files outside the repository.\n\n---\nFiles actually opened with read_file (recorded by the system, not written by the model): `backend/requirements.txt`, `README.md`"
+    }
+  ]
+}

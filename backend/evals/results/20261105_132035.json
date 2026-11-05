@@ -1,0 +1,99 @@
+{
+  "model": "gemini-3.5-flash-lite",
+  "runs_per_case": 1,
+  "results": [
+    {
+      "case": "model_used",
+      "investigation_id": 34,
+      "status": "completed",
+      "crashed": null,
+      "steps": 4,
+      "errors": 0,
+      "seconds": 34.3,
+      "keyword_ok": true,
+      "files_ok": true,
+      "files_read": [
+        "backend/app/llm.py"
+      ],
+      "unverified_citations": [],
+      "expect_absent": false,
+      "answer": "1. Likely answer or root cause:\nThe application uses Google's Gemini model, specifically the model identified by the string `\"gemini-3.5-flash-lite\"`, accessed via the Google GenAI Python SDK (`google.genai`).\n\n2. Evidence:\n- `backend/app/llm.py`: Defines `MODEL = \"gemini-3.5-flash-lite\"` and utilizes `client = genai.Client(api_key=os.getenv(\"GEMINI_API_KEY\"))` and `client.models.generate_content(model=MODEL, ...)` to generate content and handle tool calls.\n\n3. What remains uncertain:\n- Whether other models are used anywhere outside of `backend/app/llm.py` (though search/file examination shows `backend/app/llm.py` is the sole module handling Gemini calls).\n\n---\nFiles actually opened with read_file (recorded by the system, not written by the model): `backend/app/llm.py`"
+    },
+    {
+      "case": "cache_check",
+      "investigation_id": 35,
+      "status": "completed",
+      "crashed": null,
+      "steps": 3,
+      "errors": 0,
+      "seconds": 74.5,
+      "keyword_ok": true,
+      "files_ok": true,
+      "files_read": [
+        "backend/app/main.py",
+        "backend/app/repository_service.py"
+      ],
+      "unverified_citations": [],
+      "expect_absent": false,
+      "answer": "1. Likely answer or root cause:\nThe logic that checks whether a repository is already saved in the database before calling GitHub is located in `backend/app/repository_service.py` inside the `get_or_create_repository` function (and similarly in the `/repo/{owner}/{repo}/save` endpoint in `backend/app/main.py`). Specifically, it queries the database for an existing repository matching `full_name = f\"{owner}/{repo}\"` before calling `get_repository(owner, repo)`.\n\n2. Evidence:\n- `backend/app/repository_service.py`: Contains `get_or_create_repository(db, owner, repo)` which queries `db.query(Repository).filter(Repository.full_name == full_name).first()` and returns the existing repository if found *before* calling `get_repository(owner, repo)`.\n- `backend/app/main.py`: Contains the `/repo/{owner}/{repo}/save` endpoint, which calls `get_repository(owner, repo)` *first*, and then checks `db.query(Repository).filter(Repository.full_name == data[\"full_name\"]).first()`. However, `get_or_create_repository` (used by other endpoints like `/repo/{owner}/{repo}` and investigation creation) performs the check *before* calling GitHub.\n\n3. What remains uncertain:\n- Whether any other modules or background tasks implement similar database lookup patterns without reading all files.\n\n---\nFiles actually opened with read_file (recorded by the system, not written by the model): `backend/app/main.py`, `backend/app/repository_service.py`"
+    },
+    {
+      "case": "step_limit",
+      "investigation_id": 36,
+      "status": "completed",
+      "crashed": null,
+      "steps": 6,
+      "errors": 0,
+      "seconds": 28.4,
+      "keyword_ok": true,
+      "files_ok": true,
+      "files_read": [
+        "README.md",
+        "backend/app/agent.py",
+        "backend/app/investigation_service.py"
+      ],
+      "unverified_citations": [],
+      "expect_absent": false,
+      "answer": "1. Likely answer or root cause:\nWhen the agent reaches the maximum allowed number of investigation steps (`MAX_STEPS`, which is set to 10 in `backend/app/agent.py`), the loop terminates. The agent then receives a user message instructing it not to call any more tools and to provide its best answer using only the information gathered up to that point. The system calls the LLM one final time with tools disabled (`allow_tools=False`), sets the investigation status to `\"step_limit_reached\"`, and returns a dictionary containing that status, the maximum step count, and the final generated answer text.\n\n2. Evidence (file paths and what you saw in them):\n- `backend/app/agent.py`: Saw the `MAX_STEPS = 10` constant and the loop that iterates up to `MAX_STEPS`. When the loop finishes without returning early, it appends a message instructing the model that it has used all available investigation steps and must not call any more tools, calls `llm.generate(...)` with `allow_tools=False`, and returns `{\"status\": \"step_limit_reached\", \"steps\": MAX_STEPS, \"answer\": llm.get_text(final) or None}`.\n- `backend/app/investigation_service.py`: Saw that `run_investigation` assigns `investigation.status = outcome[\"status\"]` (which becomes `\"step_limit_reached\"`) and `investigation.answer = outcome[\"answer\"]`, then commits these changes to the database.\n\n3. What remains uncertain:\n- Empty searches or failed tools: None in this context.\n- Files I only saw by name: `backend/app/main.py`, `backend/app/models.py`, `backend/requirements.txt`.\n- What I could not check: How the API endpoint or frontend displays or handles the `\"step_limit_reached\"` status and final answer once stored in the database.\n\n---\nFiles actually opened with read_file (recorded by the system, not written by the model): `README.md`, `backend/app/agent.py`, `backend/app/investigation_service.py`"
+    },
+    {
+      "case": "tool_errors",
+      "investigation_id": 37,
+      "status": "completed",
+      "crashed": null,
+      "steps": 9,
+      "errors": 0,
+      "seconds": 66.2,
+      "keyword_ok": true,
+      "files_ok": true,
+      "files_read": [
+        "README.md",
+        "backend/app/agent.py",
+        "backend/app/agent_tools.py",
+        "backend/app/investigation_service.py"
+      ],
+      "unverified_citations": [],
+      "expect_absent": false,
+      "answer": "1. Likely answer or root cause:\nWhen an exception occurs or an unknown tool is requested during the execution of a tool call in `execute_tool`, the error is caught, converted into a dictionary containing an `\"error\"` key (e.g. `{\"error\": str(e)}`), and returned as the tool's result. In the investigation service (`investigation_service.py`), when such a tool result is saved via the step callback, its `is_error` flag is explicitly set to `True` (determined by checking `\"error\" in result`). The conversation history (`contents`) receives this error result message and passes it back to the LLM agent, allowing the agent to continue its investigation loop (handling the error as data). If an unexpected uncaught top-level exception occurs during the overall investigation runner (`run_investigation`), the database transaction is rolled back, the investigation status is set to `\"failed\"`, and the exception is re-raised.\n\n2. Evidence:\n- `backend/app/agent_tools.py`: Shows that `execute_tool` catches exceptions inside a `try...except Exception as e:` block and returns `{\"error\": str(e)}`, as well as returning `{\"error\": f\"Unknown tool: {name}\"}` if the tool name isn't matched.\n- `backend/app/investigation_service.py`: Defines the `save_step` callback which checks `is_error=\"error\" in result` when creating an `InvestigationStep` record, committing it to the database so that steps with errors are recorded with `is_error = True`.\n- `backend/app/agent.py`: Shows that tool results are appended to `contents` via `llm.tool_result_message(results)` and fed back into the LLM model loop.\n\n3. What remains uncertain:\nNo uncertainty regarding the implemented handling of individual tool call failures within the core agent and investigation service logic.\n\n---\nFiles actually opened with read_file (recorded by the system, not written by the model): `README.md`, `backend/app/agent.py`, `backend/app/agent_tools.py`, `backend/app/investigation_service.py`"
+    },
+    {
+      "case": "absent_feature",
+      "investigation_id": 38,
+      "status": "completed",
+      "crashed": null,
+      "steps": 9,
+      "errors": 0,
+      "seconds": 95.7,
+      "keyword_ok": null,
+      "files_ok": null,
+      "files_read": [
+        "README.md",
+        "backend/app/database.py",
+        "backend/requirements.txt"
+      ],
+      "unverified_citations": [],
+      "expect_absent": true,
+      "answer": "1. Likely answer or root cause:\nRedis is not used for caching (nor used at all) in this application. \n\n2. Evidence:\n- `backend/requirements.txt` contains no Redis packages (only FastAPI, uvicorn, python-dotenv, requests, sqlalchemy, psycopg2-binary, and google-genai).\n- `backend/app/database.py` connects to PostgreSQL via SQLAlchemy and has no reference to Redis.\n- Repository searches for \"redis\" and \"cache\" returned no results.\n\n3. What remains uncertain:\n- Whether environment variables or deployment configurations (such as docker-compose files outside the standard project structure or not checked) define a Redis service, though no such files appear in the repository root or backend directory.\n\n---\nFiles actually opened with read_file (recorded by the system, not written by the model): `backend/requirements.txt`, `README.md`, `backend/app/database.py`"
+    }
+  ]
+}

@@ -58,7 +58,7 @@ def generate(contents: list, system_instruction: str, declarations: list, allow_
         system_instruction=system_instruction,
         tools=[types.Tool(function_declarations=declarations)],
     )
-    if not allow_tools:
+    if not allow_tools: #if this was the case where step limit is exceeded and the model needs to give the best effort answer
         config_kwargs["tool_config"] = types.ToolConfig(
             function_calling_config=types.FunctionCallingConfig(mode="NONE")
         )
@@ -66,6 +66,7 @@ def generate(contents: list, system_instruction: str, declarations: list, allow_
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
+            _throttle()
             response = client.models.generate_content(
                 model=MODEL, contents=contents, config=config
             )
@@ -73,7 +74,7 @@ def generate(contents: list, system_instruction: str, declarations: list, allow_
         except errors.APIError as e:
             if e.code not in RETRYABLE_CODES or attempt == MAX_ATTEMPTS:
                 raise
-            wait = 2 ** attempt
+            wait = 20 * attempt if e.code == 429 else 2 ** attempt
             print(f"[llm] Gemini returned {e.code}, retrying in {wait}s (attempt {attempt}/{MAX_ATTEMPTS})")
             time.sleep(wait)
 
@@ -90,3 +91,15 @@ def get_function_calls(content) -> list:
 #Takes in the .content returned by the model and returns a string with is the appended version of all the text in the response
 def get_text(content) -> str:
     return "".join(p.text for p in (content.parts or []) if p.text)
+
+#Adding throttle so that it does not exceed the models RPM
+MIN_SECONDS_BETWEEN_CALLS = 0   # set to 0 for a normal run, and increase depending on your RPM otherwise
+_last_call_time = 0.0
+
+
+def _throttle():
+    global _last_call_time
+    wait = MIN_SECONDS_BETWEEN_CALLS - (time.perf_counter() - _last_call_time)
+    if wait > 0:
+        time.sleep(wait)
+    _last_call_time = time.perf_counter()

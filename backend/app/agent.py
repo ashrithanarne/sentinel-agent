@@ -14,7 +14,7 @@ search_repository may be incomplete: it falls back to scanning only a limited nu
 Seeing a file's name in a directory listing is NOT the same as reading it. Make claims about a file's contents only if you opened it with read_file.
 Base your conclusions only on files you actually read. When you have enough evidence, stop calling tools and answer with:
 1. Likely answer or root cause
-2. Evidence (file paths and what you saw in them)
+2. Evidence (for each claim, name the file and quote the exact relevant line(s) of code in a fenced code block, copied exactly from what you read)
 3. What remains uncertain: empty searches or failed tools, files you only saw by name, and what you could not check. Do NOT list which files you read; the system appends that list automatically. If your conclusion is that something does not exist, phrase it as 'no evidence found in the files I checked'. Never write that nothing is uncertain."""
 
 
